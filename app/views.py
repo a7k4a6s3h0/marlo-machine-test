@@ -190,14 +190,13 @@ def delete_blog(request):
 class ListUsers(generics.ListAPIView):
 
     permission_classes = [IsAuthenticated]
-    serializer_class = [ ListUsersBlogSerializer]
+    serializer_class = [ BlogPostSerializer]
 
     def get(self, request):
 
-        blog_list = Blog_post.objects.all()
-        
-        serializer = ListUsersBlogSerializer(blog_list, many=True)
-        
+        user = custom_usermodel.objects.get(id=request.user.id)
+        blog_posts = Blog_post.objects.filter(author=user)
+        serializer = BlogPostSerializer(blog_posts, many=True, context={'request':request})
         return Response({
             'status': status.HTTP_200_OK,
             'message': 'success',
