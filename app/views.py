@@ -6,6 +6,9 @@ from rest_framework.exceptions import APIException, NotFound
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import api_view, permission_classes
+from django.db.models import Count
+from django.db.models import OuterRef, Subquery
+import json
 # Create your views here.
 
 
@@ -114,22 +117,25 @@ class add_like_other(generics.UpdateAPIView):
     serializer_class = LikeOtherSerializer
 
     def get(self, request):
-        
-        serializer = LikeOtherSerializer(instance=request.user, data=request.data, context={'request':request})
-        if serializer.is_valid():
-            serializer.save()
-            print(serializer.data)
+        try:
+            blog_instance = Blog_post.objects.get(id=request.data.get('post_id', None))
+            serializer = LikeOtherSerializer(instance=blog_instance, data=request.data, context={'request':request})
+            if serializer.is_valid():
+                serializer.save()
+                
+                return Response({
+                    "status": 200,
+                    "msg": "Success",
+                    "result": serializer.data
+                })
+            
             return Response({
-                "status": 200,
-                "msg": "Success"
-
+                'status': status.HTTP_400_BAD_REQUEST,
+                'errors': serializer.errors
             })
+        except Blog_post.DoesNotExist:
+            raise NotFound("No such blog post exists")
         
-        return Response({
-            'status': status.HTTP_400_BAD_REQUEST,
-            'errors': serializer.errors
-        })
-    
 class EditBlog(generics.UpdateAPIView):
 
     permission_classes = [IsAuthenticated]
@@ -190,19 +196,56 @@ def delete_blog(request):
 class ListUsers(generics.ListAPIView):
 
     permission_classes = [IsAuthenticated]
-    serializer_class = [ BlogPostSerializer]
+    serializer_class = [ BlogPostSerializer, ListUsersBlogSerializer]
 
     def get(self, request):
 
-        user = custom_usermodel.objects.get(id=request.user.id)
-        blog_posts = Blog_post.objects.filter(author=user)
+        
+        users_with_likes_dislikes_comments = custom_usermodel.objects.annotate(
+            total_likes=Count('reverse_User__likers'),
+            total_dislike=Count('reverse_User__total_dislike')
+        )
+        
+        latest_blog_post = Blog_post.objects.filter(author=OuterRef('id')).order_by('-created_at')
+        
+        users_with_latest_blog = users_with_likes_dislikes_comments.annotate(
+            latest_blog_id = Subquery(latest_blog_post.values('id')[:1]),
+            latest_blog_title=Subquery(latest_blog_post.values('title')[:1]),
+            latest_blog_content=Subquery(latest_blog_post.values('content')[:1]),
+            latest_blog_image=Subquery(latest_blog_post.values('image')[:1]),
+            latest_blog_file=Subquery(latest_blog_post.values('files')[:1]),
+            latest_blog_comments=Subquery(latest_blog_post.values('comments__text')[:1])
+        )
+
+        
+        result = [{
+                'user': user.username,
+                'total_likes': user.total_likes,
+                'total_dislike': user.total_dislike,
+                'latest_blog': {
+                    'title': user.latest_blog_title,
+                    'content': user.latest_blog_content,
+                    'image': user.latest_blog_image,
+                    'file': user.latest_blog_file,
+                    'comments': user.latest_blog_comments,
+                }
+            }
+            for user in users_with_latest_blog
+        ]
+        
+        print(json.dumps(result, indent=4))
+        
+        blog_posts = Blog_post.objects.all()
+
+
         serializer = BlogPostSerializer(blog_posts, many=True, context={'request':request})
+        
         return Response({
             'status': status.HTTP_200_OK,
             'message': 'success',
-            'data': serializer.data
+            'data': result
         })
-        # return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST) 
+        
 
 class block_user(generics.UpdateAPIView):
 

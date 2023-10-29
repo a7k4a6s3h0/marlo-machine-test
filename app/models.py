@@ -29,7 +29,7 @@ class Blog_post(models.Model):
     validation = Data_validation()
     title = models.CharField(max_length=128, validators=[validation.validate_title])
     content = models.TextField(validators=[validation.validate_content])
-    author = models.ForeignKey(custom_usermodel, on_delete=models.CASCADE)
+    author = models.ForeignKey(custom_usermodel, on_delete=models.CASCADE, related_name="reverse_User")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     total_likes = models.IntegerField(null=True, default=0)

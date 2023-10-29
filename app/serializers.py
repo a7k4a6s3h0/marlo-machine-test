@@ -7,7 +7,6 @@ class UserSerializer(serializers.ModelSerializer):
         model = custom_usermodel
         fields = ('id', 'username', 'email', 'profile_picture', 'phone_number')
 
-
 class user_registration(serializers.ModelSerializer):
     
     re_enter_password = serializers.CharField(write_only=True)
@@ -122,35 +121,48 @@ class BlogPostSerializer(serializers.ModelSerializer):
 class LikeOtherSerializer(serializers.ModelSerializer):
 
     post_id = serializers.IntegerField(write_only=True)
-
+    comments = serializers.CharField(write_only=True)
     class Meta:
         model = Blog_post
-        fields = ('post_id', 'total_likes','total_dislike')
-        write_only_fields = ('post_id',)
+        fields = ('post_id', 'total_likes','total_dislike', 'comments')
+        write_only_fields = ('post_id','comments')      
+
+    def get_blog_picture_url(self, obj):
+        request = self.context.get('request')
+        user = request.user
+        if user.profile_picture:
+            return request.build_absolute_uri(user.profile_picture.url)
+        else:
+            return None
 
     def to_representation(self, instance):
-        user = self.context['request'].user
        
+        user = self.context['request'].user
+        user_data = UserSerializer(user).data
+        if 'profile_picture' in user_data:
+            user_data['profile_picture'] = self.get_blog_picture_url(user)
         return {
-            'commenter': UserSerializer(user).data,
-            'comment': instance.comments,
+            'commenter': user_data ,
+            'comment': instance.comments.values().get(user_id=user),
             'post_id': instance.id,
         }    
 
     def update(self, instance, validated_data):
         post_id = validated_data.pop('post_id', None)
+        comments = validated_data.pop('comments', None)
+        user = self.context['request'].user
         try:
             blog_post = Blog_post.objects.get(id=post_id)
             
             # Check if the user has already liked the post
-            if instance.id not in blog_post.likers.values_list('id', flat=True):
+            if user.id not in blog_post.likers.values_list('id', flat=True):
                 # Add the user to the likers for the blog post
-                blog_post.likers.add(instance.id)
+                blog_post.likers.add(user.id)
                 blog_post.total_likes = validated_data.get('total_likes', blog_post.total_likes)
                 blog_post.total_dislike = validated_data.get('total_dislike', blog_post.total_dislike)
                 blog_post.save()
 
-                Comment.objects.create(user=instance, blog_post=blog_post, text=validated_data.get('comments', None)).save()
+                Comment.objects.create(user=user, blog_post=blog_post, text=comments).save()
 
         except ValidationError:
             raise serializers.ValidationError('Blog Not Found..........')    
@@ -192,7 +204,7 @@ class DeleteBlogSerializer(serializers.Serializer):
 #         fields = ('title', 'content', 'total_likes','total_dislike', 'author')
 
 
-class ListUsersBlogSerializer(serializers.ListSerializer):
+class ListUsersBlogSerializer(serializers.Serializer):
     child = BlogPostSerializer()    
 
 
